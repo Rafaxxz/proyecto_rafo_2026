@@ -34,12 +34,13 @@ button{border:0;border-radius:10px;font-weight:600;cursor:pointer;font-size:15px
 .estado{margin-top:12px;font-size:13px;color:var(--gris);min-height:18px}
 .estado.trabajando{color:var(--azul2);font-weight:600}
 .err{color:var(--rojo)}
-.modulos{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.modulos{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}
 .mod{background:var(--blanco);border:1px solid var(--borde);border-radius:14px;padding:16px;text-decoration:none;color:var(--tinta);display:block}
 .mod:active{border-color:var(--naranja)}
 .mod h3{font-size:15px;margin-bottom:4px}
 .mod.c h3{color:var(--azul2)}
 .mod.b h3{color:#b45309}
+.mod.r h3{color:var(--verde)}
 .mod p{font-size:12px;color:var(--gris);line-height:1.45}
 .res h3{font-size:15px;margin:16px 0 4px}
 .res h3.tc{color:var(--azul2)}
@@ -88,6 +89,10 @@ button{border:0;border-radius:10px;font-weight:600;cursor:pointer;font-size:15px
   <a class="mod b" href="/buenapro">
     <h3>Modulo Buena Pro</h3>
     <p>Ganadores por item, OSCE, registros DIGESA, Excel y PDF.</p>
+  </a>
+  <a class="mod r" href="/ruc">
+    <h3>Consulta por RUC</h3>
+    <p>Sin PDF: escribes el RUC y sale OSCE, DIGESA, telefonos y correos.</p>
   </a>
 </div>
 
@@ -246,13 +251,19 @@ async function descargar(url,body,nombre){
     setTimeout(()=>a.remove(),1000);
   }catch(e){alert('Error: '+e)}
 }
+const DIAS=['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+function nombreArchivo(base,ext){
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  return base+'_'+DIAS[d.getDay()]+'-'+p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+
+         '_'+p(d.getHours())+'-'+p(d.getMinutes())+'-'+p(d.getSeconds())+'.'+ext;
+}
 function expContratos(tipo){
-  if(tipo==='excel') descargar('/contratos/exportar',{datos:datosContratos},'contratos_ganadores.xlsx');
-  else descargar('/contratos/exportar_pdf_lote',{datos:datosContratos},'contratos_lote.pdf');
+  if(tipo==='excel') descargar('/contratos/exportar',{datos:datosContratos},nombreArchivo('contratos_ganadores','xlsx'));
+  else descargar('/contratos/exportar_pdf_lote',{datos:datosContratos},nombreArchivo('contratos_lote','pdf'));
 }
 function expBuenaPro(tipo){
-  if(tipo==='excel') descargar('/buenapro/exportar',{datos:datosBuenaPro},'analisis_buena_pro.xlsx');
-  else descargar('/buenapro/exportar_pdf',{datos:datosBuenaPro},'analisis_buena_pro_general.pdf');
+  if(tipo==='excel') descargar('/buenapro/exportar',{datos:datosBuenaPro},nombreArchivo('analisis_buena_pro','xlsx'));
+  else descargar('/buenapro/exportar_pdf',{datos:datosBuenaPro},nombreArchivo('analisis_buena_pro_general','pdf'));
 }
 </script>
 <script>

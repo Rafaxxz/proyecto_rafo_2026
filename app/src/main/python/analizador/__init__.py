@@ -7,7 +7,7 @@ import pdfplumber
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from . import buenapro, contratos
+from . import buenapro, consulta, contratos
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.environ.get('HOME', tempfile.gettempdir())
@@ -60,6 +60,7 @@ def create_app():
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
     app.register_blueprint(contratos.bp)
     app.register_blueprint(buenapro.bp)
+    app.register_blueprint(consulta.bp)
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(INBOX, exist_ok=True)
 

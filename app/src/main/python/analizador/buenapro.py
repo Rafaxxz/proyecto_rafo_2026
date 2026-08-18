@@ -7,7 +7,6 @@ from datetime import datetime
 import requests
 import urllib3
 import openpyxl
-from bs4 import BeautifulSoup
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -16,13 +15,14 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from werkzeug.utils import secure_filename
 
+from . import digesa, utiles
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 bp = Blueprint('buenapro', __name__, url_prefix='/buenapro')
 import tempfile
 UPLOAD_FOLDER = os.path.join(os.environ.get('HOME', tempfile.gettempdir()), 'uploads')
 
-DIGESA_URL = 'https://consultas-digesa.minsa.gob.pe/ConsultaWebRS/Consultas/Consulta_Registro_Sanitario.aspx'
 OSCE_BASE  = 'https://eap.osce.gob.pe/perfilprov-bus/1.0/ficha'
 
 ALLOWED_EXTENSIONS = {'pdf'}
@@ -142,260 +142,13 @@ def consultar_osce(ruc):
 
 
 # ─────────────────────────────
-#  DIGESA — 2 pasos:
-#  Paso 1: Buscar por RUC → tabla GridView1 → obtener LinkButton IDs + VIEWSTATE
-#  Paso 2: Click en cada registro → obtener detalle (teléfono, rep.legal, productos)
+#  DIGESA — la implementacion vive en digesa.py (compartida con contratos)
 # ─────────────────────────────
 
-def _digesa_headers_base():
-    return {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'es-ES,es;q=0.9,en-GB;q=0.7,en-US;q=0.6,es-PE;q=0.5',
-        'Cache-Control': 'no-cache',
-        'Referer': DIGESA_URL,
-        'Origin': 'https://consultas-digesa.minsa.gob.pe',
-    }
-
-def _digesa_payload_base(soup, ruc, anio):
-    """Payload base con todos los campos que manda el browser"""
-    def val(id_):
-        el = soup.find('input', {'id': id_})
-        return el['value'] if el else ''
-
-    return {
-        'ctl00$ContentPlaceHolder1$ScriptManager1': (
-            'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$UpdatePanel8'
-            '|ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$Button_ConsultaRUC'
-        ),
-        'ctl00_ContentPlaceHolder1_TabContainer1_ClientState': '{"ActiveTabIndex":1,"TabState":[true,true,true,true,true,true]}',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaEmpresa$TextBox_ConsultaEmpresa': '',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaEmpresa$ddlEstado_Empresa': '%',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaEmpresa$ddlAñoEmision_Empresa': '2026',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$TextBox_ConsultaRUC': ruc,
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$ddlEstado_RUC': '%',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$ddlAñoEmision_RUC': anio,
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaProducto$TextBox_ConsultaProducto': '',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaProducto$ddlEstado_Producto': '%',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaProducto$ddlAñoEmision_Producto': '2026',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaCertificado$TextBox_ConsultaCertificado': '',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaExpediente$TextBox_NumeroExp': '',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaExpediente$DropDownList_AnoExp': '2026',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaExpediente$DropDownList_TupaExp': '30',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_Departamento$DDL_Departamento': '0',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_Departamento$ddlEstado_Departamento': '%',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_Departamento$ddlAñoEmision_Departamento': '2026',
-        'ctl00$ContentPlaceHolder1$HiddenField_ParamBusqueda': ruc,
-        'ctl00$ContentPlaceHolder1$HiddenField_ParamFlag': '4',
-        'ctl00$ContentPlaceHolder1$HiddenField_ParamCodigo': '',
-        '__EVENTTARGET': '',
-        '__EVENTARGUMENT': '',
-        '__VIEWSTATE': val('__VIEWSTATE'),
-        '__VIEWSTATEGENERATOR': val('__VIEWSTATEGENERATOR'),
-        '__VIEWSTATEENCRYPTED': '',
-        '__EVENTVALIDATION': val('__EVENTVALIDATION'),
-        '__ASYNCPOST': 'true',
-        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$Button_ConsultaRUC': 'Buscar',
-    }
-
-def _extraer_vs(soup2_text):
-    """Extrae VIEWSTATE, VIEWSTATEGENERATOR y EVENTVALIDATION de la respuesta UpdatePanel"""
-    soup = BeautifulSoup(soup2_text, 'html.parser')
-    def val(id_):
-        el = soup.find('input', {'id': id_})
-        return el['value'] if el else ''
-    # También buscar en el texto crudo del UpdatePanel (formato pipe-delimited)
-    vs = val('__VIEWSTATE')
-    vsg = val('__VIEWSTATEGENERATOR') or '60B26698'
-    ev = val('__EVENTVALIDATION')
-    # Si no los encontró en HTML, buscar en texto raw
-    if not vs:
-        m = re.search(r'\|hiddenField\|__VIEWSTATE\|(.+?)\|', soup2_text)
-        if m: vs = m.group(1)
-    if not ev:
-        m = re.search(r'\|hiddenField\|__EVENTVALIDATION\|(.+?)\|', soup2_text)
-        if m: ev = m.group(1)
-    return vs, vsg, ev
-
 def consultar_digesa(ruc):
-    ruc = re.sub(r'\D', '', ruc or '')
-    vacio = {'ruc': ruc, 'registros': [], 'telefonos': [], 'rep_legal': '',
-             'tiene_digesa': False, 'tipo': 'Revendedor', 'direccion': ''}
-    if len(ruc) != 11:
-        return vacio
+    return digesa.consultar(ruc)
 
-    try:
-        hb = _digesa_headers_base()
-        hp = {**hb, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-              'X-MicrosoftAjax': 'Delta=true', 'X-Requested-With': 'XMLHttpRequest'}
 
-        session = requests.Session()
-        resp_get = session.get(DIGESA_URL, headers={**hb, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'}, timeout=30)
-        soup_ini = BeautifulSoup(resp_get.text, 'html.parser')
-
-        registros_todos = []
-        telefonos = []
-        rep_legal = ''
-        direccion = ''
-
-        for anio in ['2026', '2025', '2024', '2023', '2022']:
-            try:
-                # ── PASO 1: Buscar por RUC ──
-                payload1 = _digesa_payload_base(soup_ini, ruc, anio)
-                r1 = session.post(DIGESA_URL, data=payload1, headers=hp, timeout=60)
-                c1 = r1.text
-
-                if 'No se encontraron resultados' in c1:
-                    continue
-
-                soup1 = BeautifulSoup(c1, 'html.parser')
-                tabla = soup1.find('table', id='ctl00_ContentPlaceHolder1_GridView1')
-                if not tabla:
-                    continue
-
-                # Extraer filas de la tabla
-                filas = tabla.find_all('tr')[1:]
-                if not filas:
-                    continue
-
-                # Extraer VIEWSTATE actualizado de la respuesta
-                vs1, vsg1, ev1 = _extraer_vs(c1)
-
-                # HiddenField actualizado (ParamBusqueda, ParamFlag, ParamCodigo)
-                hf_busqueda = ''
-                hf_flag = ''
-                hf_codigo = ''
-                el = soup1.find('input', {'id': 'ctl00_ContentPlaceHolder1_HiddenField_ParamBusqueda'})
-                if el: hf_busqueda = el.get('value', '')
-                el = soup1.find('input', {'id': 'ctl00_ContentPlaceHolder1_HiddenField_ParamFlag'})
-                if el: hf_flag = el.get('value', '')
-                el = soup1.find('input', {'id': 'ctl00_ContentPlaceHolder1_HiddenField_ParamCodigo'})
-                if el: hf_codigo = el.get('value', '')
-
-                # ── PASO 2: Click en primer registro para obtener detalle ──
-                primer_link = filas[0].find('a', id=lambda x: x and 'LinkButton_RegSan' in str(x))
-                if primer_link and vs1:
-                    link_name = primer_link.get('id', '').replace('_', '$').replace('ctl00$ContentPlaceHolder1$', 'ctl00$ContentPlaceHolder1$')
-                    # Convertir ID a name (reemplazar _ por $ manteniendo prefijos)
-                    link_name = re.sub(r'ctl00_', 'ctl00$', primer_link.get('id', ''))
-                    link_name = link_name.replace('_ContentPlaceHolder1_', '$ContentPlaceHolder1$')
-                    link_name = link_name.replace('_GridView1_', '$GridView1$')
-                    link_name = link_name.replace('_ctl0', '$ctl0')
-                    link_name = link_name.replace('_LinkButton_RegSan', '$LinkButton_RegSan')
-
-                    payload2 = {
-                        'ctl00$ContentPlaceHolder1$ScriptManager1': (
-                            'ctl00$ContentPlaceHolder1$UpdatePanel1'
-                            '|' + link_name
-                        ),
-                        'ctl00_ContentPlaceHolder1_TabContainer1_ClientState': '{"ActiveTabIndex":1,"TabState":[true,true,true,true,true,true]}',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaEmpresa$TextBox_ConsultaEmpresa': '',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaEmpresa$ddlEstado_Empresa': '%',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaEmpresa$ddlAñoEmision_Empresa': '2026',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$TextBox_ConsultaRUC': ruc,
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$ddlEstado_RUC': '%',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaRUC$ddlAñoEmision_RUC': anio,
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaProducto$TextBox_ConsultaProducto': '',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaProducto$ddlEstado_Producto': '%',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaProducto$ddlAñoEmision_Producto': '2026',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaCertificado$TextBox_ConsultaCertificado': '',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaExpediente$TextBox_NumeroExp': '',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaExpediente$DropDownList_AnoExp': '2026',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_ConsultaExpediente$DropDownList_TupaExp': '30',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_Departamento$DDL_Departamento': '0',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_Departamento$ddlEstado_Departamento': '%',
-                        'ctl00$ContentPlaceHolder1$TabContainer1$TabPanel_Departamento$ddlAñoEmision_Departamento': '2026',
-                        'ctl00$ContentPlaceHolder1$HiddenField_ParamBusqueda': hf_busqueda or ruc,
-                        'ctl00$ContentPlaceHolder1$HiddenField_ParamFlag': hf_flag or '4',
-                        'ctl00$ContentPlaceHolder1$HiddenField_ParamCodigo': hf_codigo,
-                        '__EVENTTARGET': link_name,
-                        '__EVENTARGUMENT': '',
-                        '__VIEWSTATE': vs1,
-                        '__VIEWSTATEGENERATOR': vsg1,
-                        '__VIEWSTATEENCRYPTED': '',
-                        '__EVENTVALIDATION': ev1,
-                        '__ASYNCPOST': 'true',
-                    }
-
-                    r2 = session.post(DIGESA_URL, data=payload2, headers=hp, timeout=60)
-                    soup2 = BeautifulSoup(r2.text, 'html.parser')
-
-                    # Teléfono Label23
-                    if not telefonos:
-                        tel = soup2.find('span', id=lambda x: x and 'Label23' in str(x))
-                        if tel:
-                            t = n(tel.get_text())
-                            if t: telefonos.append(t)
-
-                    # Rep. Legal Label24
-                    if not rep_legal:
-                        rep = soup2.find('span', id=lambda x: x and 'Label24' in str(x))
-                        if rep:
-                            rep_legal = n(rep.get_text())
-
-                    # Dirección Label19
-                    if not direccion:
-                        dir_el = soup2.find('span', id=lambda x: x and 'Label19' in str(x))
-                        if dir_el:
-                            direccion = n(dir_el.get_text())
-
-                # Extraer filas de GridView1 (registros)
-                for fila in filas:
-                    celdas = fila.find_all('td')
-                    if len(celdas) < 8:
-                        continue
-                    reg_el = celdas[0].find('a') or celdas[0]
-                    numero = n(reg_el.get_text())
-                    prod_span = celdas[3].find('span')
-                    producto_full = n(prod_span.get_text() if prod_span else celdas[3].get_text())
-                    # Extraer nombre corto del producto (antes de "Denominación")
-                    prod_corto = producto_full.split('Denominación')[0].strip()
-                    prod_corto = re.sub(r'^Producto\s+\d+\s*:', '', prod_corto).strip()
-                    fecha_emision = n(celdas[4].get_text())
-                    fecha_venc    = n(celdas[6].get_text())
-                    empresa       = n(celdas[7].get_text()) if len(celdas) > 7 else ''
-                    dir_celda     = n(celdas[8].get_text()) if len(celdas) > 8 else ''
-
-                    if numero:
-                        registros_todos.append({
-                            'numero': numero,
-                            'producto': prod_corto[:150],
-                            'producto_completo': producto_full[:500],
-                            'fecha_emision': fecha_emision,
-                            'fecha_vencimiento': fecha_venc,
-                            'empresa': empresa,
-                            'direccion_registro': dir_celda,
-                            'anio': anio,
-                        })
-
-            except Exception as e:
-                print(f'[DIGESA] Error año {anio}: {e}')
-                continue
-
-        # Deduplicar
-        vistos = set()
-        registros_unicos = []
-        for r in registros_todos:
-            if r['numero'] not in vistos:
-                vistos.add(r['numero'])
-                registros_unicos.append(r)
-
-        tiene = len(registros_unicos) > 0
-        tipo  = 'Fabricante / Distribuidor' if tiene else 'Revendedor'
-
-        return {
-            'ruc': ruc,
-            'registros': registros_unicos,
-            'telefonos': telefonos,
-            'rep_legal': rep_legal,
-            'direccion': direccion,
-            'tiene_digesa': tiene,
-            'tipo': tipo,
-        }
-
-    except Exception as e:
-        print(f'[DIGESA ERROR] {ruc}: {e}')
-        return vacio
 
 
 # ─────────────────────────────
@@ -787,7 +540,7 @@ def exportar():
         excel,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name='analisis_buena_pro.xlsx'
+        download_name=utiles.nombre_archivo('analisis_buena_pro', 'xlsx')
     )
 
 
@@ -800,7 +553,7 @@ def exportar_pdf():
         pdf,
         mimetype='application/pdf',
         as_attachment=True,
-        download_name='analisis_buena_pro_general.pdf'
+        download_name=utiles.nombre_archivo('analisis_buena_pro_general', 'pdf')
     )
 
 

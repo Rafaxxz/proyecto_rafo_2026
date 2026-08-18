@@ -19,13 +19,21 @@ dentro de un WebView. Al abrir o compartir un PDF desde cualquier app, aparece
    Pasalo al celular e instalalo (activa "instalar apps desconocidas").
 
 ## Uso
-- Abrir la app normal: portada con modo automatico + modulos /contratos y /buenapro.
+- Abrir la app normal: portada con modo automatico + modulos /contratos, /buenapro
+  y /ruc (consulta por RUC sin PDF: escribes el RUC y salen OSCE y DIGESA; tambien
+  acepta una lista de RUCs pegada de golpe).
 - Abrir un PDF desde Descargas/WhatsApp/Drive > Abrir con > Analizador SEACE:
   se encola, la app se abre y lo clasifica y procesa solo.
 - Compartir varios PDFs a la vez tambien funciona (SEND_MULTIPLE).
-- Los exportes Excel/PDF se guardan en la carpeta Descargas del celular.
+- Los exportes Excel/PDF se guardan en la carpeta Descargas del celular con el dia,
+  la fecha y la hora en el nombre (ej. analisis_buena_pro_general_lunes-17-08-2026_08-30-45.pdf),
+  asi nunca chocan entre si ni con archivos de instalaciones anteriores.
 
 ## Notas
+- Las consultas DIGESA viven en analizador/digesa.py (un solo cliente para
+  contratos y buena pro). Recorre hasta 5 anios de emision y 3 paginas del
+  GridView por anio: si una empresa tiene cientos de registros sanitarios,
+  se listan los mas recientes hasta ese tope (MAX_PAGINAS en ese archivo).
 - Las consultas DIGESA/OSCE salen por el internet del celular (datos o wifi).
   Si DIGESA bloquea tu IP movil, veras el resultado vacio igual que en PC.
 - OCR (pytesseract) queda desactivado en Android: no hay Tesseract en el celular.

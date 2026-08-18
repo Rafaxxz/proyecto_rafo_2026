@@ -234,23 +234,9 @@ class MainActivity : AppCompatActivity() {
         fun guardarArchivo(nombre: String, base64: String) {
             try {
                 val datos = Base64.decode(base64, Base64.DEFAULT)
-                val mime = when {
-                    nombre.endsWith(".pdf") -> "application/pdf"
-                    nombre.endsWith(".xlsx") ->
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    else -> "application/octet-stream"
-                }
-                val valores = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, nombre)
-                    put(MediaStore.Downloads.MIME_TYPE, mime)
-                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                }
-                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, valores)
-                uri?.let {
-                    contentResolver.openOutputStream(it)?.use { salida -> salida.write(datos) }
-                }
+                val guardado = guardarEnDescargas(nombre, datos)
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Guardado en Descargas: $nombre", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Guardado en Descargas: $guardado", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -258,5 +244,49 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Guarda en Descargas reintentando con sufijos. Si en la carpeta ya quedo un
+     * archivo con ese nombre de una instalacion anterior, MediaStore responde
+     * "Failed to build unique file" en vez de renombrarlo solo; el sufijo esquiva eso.
+     */
+    private fun guardarEnDescargas(nombre: String, datos: ByteArray): String {
+        val limpio = nombre.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "archivo.bin" }
+        var ultimoError: Exception? = null
+        for (intento in 0..4) {
+            val candidato = if (intento == 0) limpio else conSufijo(limpio, intento)
+            var uri: Uri? = null
+            try {
+                val valores = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, candidato)
+                    put(MediaStore.Downloads.MIME_TYPE, mimeDe(candidato))
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, valores)
+                    ?: throw java.io.IOException("Descargas rechazo el nombre")
+                contentResolver.openOutputStream(uri)?.use { salida -> salida.write(datos) }
+                    ?: throw java.io.IOException("No pude abrir el archivo para escribir")
+                return candidato
+            } catch (e: Exception) {
+                ultimoError = e
+                // Sin esto quedaria un archivo vacio ocupando el nombre.
+                uri?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) {} }
+            }
+        }
+        throw ultimoError ?: java.io.IOException("No pude guardar $limpio")
+    }
+
+    private fun conSufijo(nombre: String, n: Int): String {
+        val punto = nombre.lastIndexOf('.')
+        return if (punto > 0) "${nombre.substring(0, punto)}_$n${nombre.substring(punto)}"
+        else "${nombre}_$n"
+    }
+
+    private fun mimeDe(nombre: String): String = when {
+        nombre.endsWith(".pdf", true) -> "application/pdf"
+        nombre.endsWith(".xlsx", true) ->
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else -> "application/octet-stream"
     }
 }

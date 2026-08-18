@@ -217,6 +217,7 @@ body{padding-top:56px !important}
 </style>
 <div id="barra-app">
   <a href="/">&larr; Inicio</a>
+  <a href="/ruc">Consulta RUC</a>
   <button id="btn-nativo-barra" style="display:none">Elegir PDFs</button>
 </div>
 <script>
@@ -471,13 +472,21 @@ function updateStats(){
   document.getElementById('stats').style.display='grid';
 }
 
+/* NOMBRE DE ARCHIVO: base + dia, fecha y hora */
+const DIAS=['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+function nombreArchivo(base,ext){
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  return base+'_'+DIAS[d.getDay()]+'-'+p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+
+         '_'+p(d.getHours())+'-'+p(d.getMinutes())+'-'+p(d.getSeconds())+'.'+ext;
+}
+
 /* EXPORT */
 async function exportar(){
   try{
     const r=await fetch('/buenapro/exportar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datos:allData})});
     if(!r.ok) throw new Error('Error al generar');
     const blob=await r.blob();
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='buena_pro_analisis.xlsx'; a.click();
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nombreArchivo('buena_pro_analisis','xlsx'); a.click();
     URL.revokeObjectURL(a.href);
     toast('Excel exportado ✓','ok');
   }catch(e){ toast('Error: '+e.message,'err'); }
@@ -488,7 +497,7 @@ async function exportarPdf(){
     const r=await fetch('/buenapro/exportar_pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({datos:allData})});
     if(!r.ok) throw new Error('Error al generar PDF');
     const blob=await r.blob();
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='buena_pro_general.pdf'; a.click();
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nombreArchivo('buena_pro_general','pdf'); a.click();
     URL.revokeObjectURL(a.href);
     toast('PDF general exportado ✓','ok');
   }catch(e){ toast('Error: '+e.message,'err'); }

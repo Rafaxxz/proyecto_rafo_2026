@@ -147,6 +147,7 @@ body{padding-top:56px !important}
 </style>
 <div id="barra-app">
   <a href="/">&larr; Inicio</a>
+  <a href="/ruc">Consulta RUC</a>
   <button id="btn-nativo-barra" style="display:none">Elegir PDFs</button>
 </div>
 <script>
@@ -473,6 +474,14 @@ document.addEventListener('DOMContentLoaded',function(){
         card.scrollIntoView({ behavior: 'smooth' });
     }
 
+    /* NOMBRE DE ARCHIVO: base + dia, fecha y hora */
+    const DIAS = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+    function nombreArchivo(base, ext) {
+        const d = new Date(), p = n => String(n).padStart(2, '0');
+        return base + '_' + DIAS[d.getDay()] + '-' + p(d.getDate()) + '-' + p(d.getMonth() + 1) + '-' + d.getFullYear() +
+               '_' + p(d.getHours()) + '-' + p(d.getMinutes()) + '-' + p(d.getSeconds()) + '.' + ext;
+    }
+
     async function exportarExcel() {
         if (!datosExtraidos.length) return;
         const resp = await fetch('/contratos/exportar', {
@@ -483,7 +492,7 @@ document.addEventListener('DOMContentLoaded',function(){
         const blob = await resp.blob();
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
-        a.href = url; a.download = 'contratos_ganadores.xlsx'; a.click();
+        a.href = url; a.download = nombreArchivo('contratos_ganadores', 'xlsx'); a.click();
         URL.revokeObjectURL(url);
     }
 
@@ -498,7 +507,7 @@ document.addEventListener('DOMContentLoaded',function(){
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement('a');
             a.href = url;
-            a.download = `reporte_${datos.ruc || 'unknown'}.pdf`;
+            a.download = nombreArchivo(`reporte_${datos.ruc || 'sin_ruc'}`, 'pdf');
             a.click();
             URL.revokeObjectURL(url);
         } catch (err) {
@@ -518,7 +527,7 @@ document.addEventListener('DOMContentLoaded',function(){
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement('a');
             a.href = url;
-            a.download = 'contratos_lote.pdf';
+            a.download = nombreArchivo('contratos_lote', 'pdf');
             a.click();
             URL.revokeObjectURL(url);
         } catch (err) {
