@@ -29,10 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pages hay que activarlo una sola vez a mano en
+      # Settings > Pages > Build and deployment > Source: GitHub Actions.
+      # El token del workflow no tiene rango de admin para activarlo solo.
       - name: Configurar Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Empaquetar el sitio
         uses: actions/upload-pages-artifact@v3

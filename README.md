@@ -72,9 +72,12 @@ Es el mismo codigo del APK: `web/consultar.py` importa `analizador` tal cual,
 no reimplementa ni el scraping ni los exportes.
 
 ### Puesta en marcha (una sola vez)
-1. Sube esta carpeta a GitHub. El workflow "Publicar web" habilita Pages solo
-   y deja la web en `https://<usuario>.github.io/<repo>/`.
-   Si falla por permisos: Settings > Pages > Source: GitHub Actions.
+1. Activa Pages una sola vez: Settings del repo > Pages > Build and deployment >
+   Source: **GitHub Actions**. (El workflow no puede activarlo solo: crear el
+   sitio pide rango de admin y el token de Actions no lo tiene.)
+   Despues, Actions > "Publicar web" > Run workflow. Queda en
+   `https://<usuario>.github.io/<repo>/` y de ahi en adelante se actualiza
+   solo con cada push que toque `web/sitio`.
 2. Crea la clave de acceso: Settings de tu cuenta (no del repo) >
    Developer settings > Personal access tokens > Fine-grained tokens >
    Generate new token.
