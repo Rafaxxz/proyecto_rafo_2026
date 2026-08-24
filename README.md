@@ -13,7 +13,7 @@ OSCE ni DIGESA por su cuenta: ninguno de los dos manda la cabecera
 `Access-Control-Allow-Origin`, y DIGESA ademas necesita cookies de sesion y
 POSTs con VIEWSTATE. Por eso el Python corre en un runner de GitHub Actions:
 
-    navegador -> Pages (web/sitio) -> dispara "Consulta web" -> el runner corre
+    navegador -> Pages (index.html) -> dispara "Consulta web" -> el runner corre
     web/consultar.py -> deja el resultado en la rama "resultados" -> la web lo
     recoge, lo pinta y borra los archivos
 
@@ -79,7 +79,7 @@ El motor corre igual en tu PC:
     python web/consultar.py --id prueba --pdfs carpeta_con_pdfs
 
 Deja el JSON y los exportes en `publicar/`. Para ver la web en local:
-`python -m http.server` dentro de `web/sitio` (igual necesita la clave, porque
+`python -m http.server` en la raiz del repo (igual necesita la clave, porque
 habla con la API de GitHub).
 
 ## Lo que hay que saber
