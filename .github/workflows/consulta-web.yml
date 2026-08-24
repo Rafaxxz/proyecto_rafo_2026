@@ -63,6 +63,25 @@ jobs:
           [ -d "$entradas" ] || entradas=""
           python web/consultar.py --id "$ID" --rucs "$RUCS" --pdfs "$entradas" --salida publicado
 
+      # La rama es un buzon, no un archivo historico: la web se lleva el
+      # resultado y lo borra. Esto barre lo que quede de una pestana que se
+      # cerro a media consulta, mirando el sello de tiempo del propio nombre.
+      - name: Barrer restos de mas de un dia
+        env:
+          ID: ${{ inputs.id }}
+        run: |
+          rm -rf "publicado/entradas/${ID}"
+          limite=$(date -u -d '1 day ago' +%Y%m%d%H%M%S)
+          for ruta in publicado/resultados/*.json publicado/archivos/* publicado/entradas/*; do
+            [ -e "$ruta" ] || continue
+            sello=$(basename "$ruta" .json)
+            sello=${sello%%-*}
+            if [[ "$sello" =~ ^[0-9]{14}$ ]] && [ "$sello" -lt "$limite" ]; then
+              rm -rf "$ruta"
+              echo "purgado $ruta"
+            fi
+          done
+
       - name: Publicar el resultado
         env:
           ID: ${{ inputs.id }}

@@ -14,7 +14,15 @@ OSCE ni DIGESA por su cuenta: ninguno de los dos manda la cabecera
 POSTs con VIEWSTATE. Por eso el Python corre en un runner de GitHub Actions:
 
     navegador -> Pages (web/sitio) -> dispara "Consulta web" -> el runner corre
-    web/consultar.py -> publica en la rama "resultados" -> la web lo pinta
+    web/consultar.py -> deja el resultado en la rama "resultados" -> la web lo
+    recoge, lo pinta y borra los archivos
+
+No hay base de datos ni historial: el runner no tiene IP publica, asi que la
+unica forma de devolver algo es dejarlo en un sitio del que la web lo recoja.
+La rama `resultados` es ese buzon y se vacia sola. La web se lleva el Excel y
+el PDF a la memoria del navegador, borra los archivos del repositorio y desde
+ahi los descarga el usuario. Si alguien cierra la pestana a media consulta, el
+propio workflow purga lo que quede pasado un dia.
 
     analizador/          el nucleo: scraping, extraccion de PDFs y exportes
       digesa.py          cliente DIGESA (registros sanitarios por RUC)
@@ -75,8 +83,11 @@ habla con la API de GitHub).
 
 - Cada consulta tarda **1-2 minutos**: GitHub tiene que encender una maquina,
   instalar dependencias (quedan cacheadas) y recien ahi consultar.
-- Los resultados quedan en la rama `resultados` de un repo **publico**: son
-  datos de registros publicos, pero cualquiera que de con el id puede leerlos.
+- Los resultados pasan unos segundos por la rama `resultados` de un repo
+  **publico** antes de que la web los borre. Son datos de registros publicos,
+  pero durante ese rato cualquiera que de con el id podria leerlos.
+- Las descargas viven en la memoria del navegador: si recargas la pagina antes
+  de bajar el Excel o el PDF, hay que volver a consultar.
 - La clave es un token real: si se filtra, alguien podria lanzar workflows en
   este repo. Se revoca desde donde se creo.
 - Las consultas salen desde la IP del runner de GitHub, no desde tu internet.

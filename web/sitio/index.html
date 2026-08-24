@@ -153,9 +153,14 @@ const dormir = ms => new Promise(r => setTimeout(r, ms));
 function token(){ return localStorage.getItem(LLAVE) || '' }
 
 function nuevoId(){
-  const a = new Uint8Array(8);
+  // Sello UTC + azar. El sello deja que el workflow purgue restos viejos
+  // comparando nombres, sin tener que consultar fechas de commit.
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const sello = '' + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) +
+                p(d.getUTCHours()) + p(d.getUTCMinutes()) + p(d.getUTCSeconds());
+  const a = new Uint8Array(3);
   crypto.getRandomValues(a);
-  return [...a].map(b => b.toString(16).padStart(2, '0')).join('');
+  return sello + '-' + [...a].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function api(ruta, opciones = {}){
@@ -236,10 +241,12 @@ async function leerArchivo(ruta){
   if(r.status === 404) return null;
   if(r.ok){
     const j = await r.json();
-    if(j.content) return Uint8Array.from(atob(j.content.replace(/\n/g, '')), c => c.charCodeAt(0));
+    if(j.content){
+      return { bytes: Uint8Array.from(atob(j.content.replace(/\n/g, '')), c => c.charCodeAt(0)), sha: j.sha };
+    }
     if(j.download_url){
       const d = await fetch(j.download_url);
-      if(d.ok) return new Uint8Array(await d.arrayBuffer());
+      if(d.ok) return { bytes: new Uint8Array(await d.arrayBuffer()), sha: j.sha };
     }
   }
   // Arriba de 1 MB la API de contenidos se rinde: se baja del CDN crudo,
@@ -247,17 +254,52 @@ async function leerArchivo(ruta){
   const crudo = await fetch(`https://raw.githubusercontent.com/${REPO}/${RAMA}/${ruta}`);
   if(crudo.status === 404) return null;
   if(!crudo.ok) throw new Error('No pude leer el resultado (' + crudo.status + ').');
-  return new Uint8Array(await crudo.arrayBuffer());
+  return { bytes: new Uint8Array(await crudo.arrayBuffer()), sha: null };
+}
+
+/* Los archivos son un buzon, no un archivo historico: la web se los lleva a la
+   memoria y despues los borra del repositorio. Lo que quede (por una pestana
+   cerrada a media consulta) lo purga el propio workflow al dia siguiente. */
+const descargas = new Map();   // nombre de archivo -> Blob en memoria
+
+function rutasDe(r){
+  const rutas = [];
+  Object.values(r.exportes || {}).forEach(archivos =>
+    Object.values(archivos).forEach(nombre => rutas.push('archivos/' + r.id + '/' + nombre)));
+  return rutas;
+}
+
+async function recogerExportes(r){
+  for(const ruta of rutasDe(r)){
+    const archivo = await leerArchivo(ruta);
+    if(archivo) descargas.set(ruta.split('/').pop(), new Blob([archivo.bytes]));
+  }
+}
+
+async function vaciarBuzon(r){
+  for(const ruta of [`resultados/${r.id}.json`, ...rutasDe(r)]){
+    try{
+      const info = await api(`/repos/${REPO}/contents/${ruta}?ref=${RAMA}`);
+      if(!info.ok) continue;
+      const { sha } = await info.json();
+      await api(`/repos/${REPO}/contents/${ruta}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ message: 'buzon vaciado', sha, branch: RAMA }),
+      });
+    }catch(e){
+      console.warn('no pude borrar', ruta, e);   // el workflow lo purga despues
+    }
+  }
 }
 
 async function esperarResultado(id){
   const arranque = Date.now();
   let corrida = null;
   while(Date.now() - arranque < LIMITE){
-    const datos = await leerArchivo(`resultados/${id}.json`);
-    if(datos){
+    const archivo = await leerArchivo(`resultados/${id}.json`);
+    if(archivo){
       pintarPasos('listo');
-      return JSON.parse(new TextDecoder().decode(datos));
+      return JSON.parse(new TextDecoder().decode(archivo.bytes));
     }
     corrida = await buscarCorrida(id) || corrida;
     if(corrida){
@@ -289,6 +331,9 @@ async function consultar({ rucs, archivos }){
     }
     await lanzar(id, rucs);
     const resultado = await esperarResultado(id);
+    $('estado').textContent = 'Trayendo los archivos...';
+    await recogerExportes(resultado);
+    await vaciarBuzon(resultado);
     $('cardEstado').style.display = 'none';
     $('estado').classList.remove('trabajando');
     pintar(resultado);
@@ -377,30 +422,29 @@ function tarjetaBuenaPro(d){
   return html + '</div>';
 }
 
-function botonesDescarga(exportes, id){
+function botonesDescarga(exportes){
   let html = '';
   const nombres = { rucs: 'consulta por RUC', buena_pro: 'buena pro', contratos: 'contratos' };
   Object.entries(exportes || {}).forEach(([clave, archivos]) => {
     Object.entries(archivos).forEach(([tipo, nombre]) => {
+      if(!descargas.has(nombre)) return;
       html += '<button class="btn-chico' + (tipo === 'excel' ? ' verde' : '') +
-              '" onclick="bajar(\'' + id + '\',\'' + nombre + '\')">' +
+              '" onclick="bajar(\'' + nombre + '\')">' +
               (tipo === 'excel' ? 'Excel' : 'PDF') + ' ' + nombres[clave] + '</button>';
     });
   });
   return html;
 }
 
-async function bajar(id, nombre){
-  try{
-    const datos = await leerArchivo('archivos/' + id + '/' + nombre);
-    if(!datos) throw new Error('El archivo ya no esta disponible.');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([datos]));
-    a.download = nombre;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  }catch(e){ alert('Error bajando: ' + e.message) }
+function bajar(nombre){
+  const blob = descargas.get(nombre);
+  if(!blob){ alert('Ese archivo ya no esta en memoria: vuelve a consultar.'); return }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 function pintar(r){
@@ -422,8 +466,12 @@ function pintar(r){
     });
     html += '</div>';
   }
-  const botones = botonesDescarga(r.exportes, r.id);
-  if(botones) html += '<div class="card">' + botones + '</div>';
+  const botones = botonesDescarga(r.exportes);
+  if(botones){
+    html += '<div class="card">' + botones +
+      '<p class="hint" style="margin:14px 0 0">Los archivos ya salieron del repositorio: ' +
+      'estan solo en este navegador. Si recargas la pagina, hay que consultar de nuevo.</p></div>';
+  }
   if(!html) html = '<div class="card"><p class="hint">La consulta no devolvio nada.</p></div>';
   $('resultados').innerHTML = html;
   $('resultados').scrollIntoView({ behavior: 'smooth', block: 'start' });
