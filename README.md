@@ -1,106 +1,95 @@
-# Analizador SEACE
+# Analizador SEACE (web)
 
-El mismo analizador en dos formatos, compartiendo el mismo codigo Python:
+Consulta proveedores del Estado desde el navegador: RNP de OSCE y registros
+sanitarios de DIGESA, escribiendo un RUC o subiendo los PDF de contratos y
+buenas pro. Los resultados se descargan en Excel y PDF.
 
-- **APK**: Flask + los modulos (contratos y buena pro) corriendo en Android con
-  Chaquopy dentro de un WebView. Al abrir o compartir un PDF desde cualquier app,
-  aparece "Analizador SEACE" en Abrir con / Compartir y el archivo se procesa solo.
-- **Web**: una pagina en GitHub Pages que usa GitHub Actions como motor.
-  Ver [Version web](#version-web-github-pages--actions) mas abajo.
+No hay que instalar nada: se abre desde el celular o la PC.
 
-## Requisitos
-- Android Studio (Hedgehog o mas nuevo) con JDK 17
-- Python 3.12 instalado en tu PC (Chaquopy lo usa para empaquetar; si tienes otro
-  3.12 en otra ruta, agrega en app/build.gradle.kts dentro de chaquopy.defaultConfig:
-  buildPython("C:/ruta/a/python3.12/python.exe"))
-- Celular arm64 (cualquier equipo de los ultimos ~7 anos)
+## Como esta armado
 
-## Compilar
-1. Abre esta carpeta en Android Studio y deja que sincronice Gradle
-   (la primera vez descarga SDK, Chaquopy y las wheels; tarda).
-2. Build > Build App Bundle(s) / APK(s) > Build APK(s).
-3. El APK queda en app/build/outputs/apk/debug/app-debug.apk.
-   Pasalo al celular e instalalo (activa "instalar apps desconocidas").
-
-## Uso
-- Abrir la app normal: portada con modo automatico + modulos /contratos, /buenapro
-  y /ruc (consulta por RUC sin PDF: escribes el RUC y salen OSCE y DIGESA; tambien
-  acepta una lista de RUCs pegada de golpe).
-- Abrir un PDF desde Descargas/WhatsApp/Drive > Abrir con > Analizador SEACE:
-  se encola, la app se abre y lo clasifica y procesa solo.
-- Compartir varios PDFs a la vez tambien funciona (SEND_MULTIPLE).
-- Los exportes Excel/PDF se guardan en la carpeta Descargas del celular con el dia,
-  la fecha y la hora en el nombre (ej. analisis_buena_pro_general_lunes-17-08-2026_08-30-45.pdf),
-  asi nunca chocan entre si ni con archivos de instalaciones anteriores.
-
-## Notas
-- Las consultas DIGESA viven en analizador/digesa.py (un solo cliente para
-  contratos y buena pro). Recorre hasta 5 anios de emision y 3 paginas del
-  GridView por anio: si una empresa tiene cientos de registros sanitarios,
-  se listan los mas recientes hasta ese tope (MAX_PAGINAS en ese archivo).
-- Las consultas DIGESA/OSCE salen por el internet del celular (datos o wifi).
-  Si DIGESA bloquea tu IP movil, veras el resultado vacio igual que en PC.
-- OCR (pytesseract) queda desactivado en Android: no hay Tesseract en el celular.
-  Los PDFs escaneados sin texto no se podran leer.
-- pdfplumber va fijado en 0.9.0 y bs4 usa html.parser: las versiones nuevas
-  arrastran librerias nativas sin wheel para Android (pypdfium2, lxml).
-- Si Gradle se queja de que falta una wheel para Python 3.12, cambia
-  version = "3.11" en app/build.gradle.kts y vuelve a sincronizar.
-
-## Compilar sin Android Studio (GitHub Actions)
-1. Crea un repo en GitHub y sube esta carpeta completa (incluye .github/).
-2. En el repo: pestana Actions > workflow "Compilar APK" > Run workflow
-   (o simplemente haz push, se dispara solo).
-3. Cuando termine (~10-15 min la primera vez), entra al run y descarga
-   el artifact "AnalizadorSeace-apk": ahi esta app-debug.apk.
-4. Pasa el APK al celular e instalalo.
-
-## Version web (GitHub Pages + Actions)
-
-Sin instalar nada: se abre en el navegador del celular o de la PC.
-
-### Por que no es una web normal
 GitHub Pages solo sirve archivos estaticos, y el navegador no puede consultar
 OSCE ni DIGESA por su cuenta: ninguno de los dos manda la cabecera
 `Access-Control-Allow-Origin`, y DIGESA ademas necesita cookies de sesion y
 POSTs con VIEWSTATE. Por eso el Python corre en un runner de GitHub Actions:
 
-    celular -> Pages (web/sitio) -> dispara "Consulta web" -> el runner corre
+    navegador -> Pages (web/sitio) -> dispara "Consulta web" -> el runner corre
     web/consultar.py -> publica en la rama "resultados" -> la web lo pinta
 
-Es el mismo codigo del APK: `web/consultar.py` importa `analizador` tal cual,
-no reimplementa ni el scraping ni los exportes.
+    analizador/          el nucleo: scraping, extraccion de PDFs y exportes
+      digesa.py          cliente DIGESA (registros sanitarios por RUC)
+      buenapro.py        PDFs de buena pro + OSCE + Excel y PDF de resultados
+      contratos.py       PDFs de contrato + consorcio + Excel y PDF por lote
+      consulta.py        consulta por RUC suelto
+      utiles.py          nombres de archivo con dia, fecha y hora
+    web/
+      sitio/index.html   la web entera (una sola pagina, sin dependencias)
+      consultar.py       lo que ejecuta el runner
+      requirements.txt   lo que instala el runner
+    .github/workflows/
+      web.yml            publica web/sitio en Pages
+      consulta-web.yml   el motor que consulta y publica resultados
 
-### Puesta en marcha (una sola vez)
-1. Activa Pages una sola vez: Settings del repo > Pages > Build and deployment >
-   Source: **GitHub Actions**. (El workflow no puede activarlo solo: crear el
-   sitio pide rango de admin y el token de Actions no lo tiene.)
+## Puesta en marcha (una sola vez)
+
+1. **Activar Pages**: Settings del repo > Pages > Build and deployment >
+   Source: **GitHub Actions**. El workflow no puede activarlo solo: crear el
+   sitio pide rango de admin y el token de Actions no lo tiene.
    Despues, Actions > "Publicar web" > Run workflow. Queda en
    `https://<usuario>.github.io/<repo>/` y de ahi en adelante se actualiza
    solo con cada push que toque `web/sitio`.
-2. Crea la clave de acceso: Settings de tu cuenta (no del repo) >
+
+2. **Crear la clave de acceso**: Settings de tu cuenta (no del repo) >
    Developer settings > Personal access tokens > Fine-grained tokens >
    Generate new token.
    - Repository access: solo este repositorio.
    - Permissions > Repository: **Actions: Read and write** y
      **Contents: Read and write**. Nada mas.
-   - Expiration: lo que prefieras; cuando venza, se genera otro.
+   - Expiration: cuando venza, se genera otra.
+
 3. Abre la web, pega la clave y listo: queda guardada en ese dispositivo.
    Para sacarla, "Cambiar la clave de este dispositivo".
 
-### Como se usa
-- Consulta por RUC (uno o una lista pegada) igual que en la app.
-- Subida de PDFs: se suben a la rama "resultados" y el runner los clasifica y
-  procesa como el modo automatico del celular.
-- Excel y PDF se descargan desde la misma pagina, con dia/fecha/hora en el nombre.
+## Como se usa
 
-### Lo que hay que saber
+- **Por RUC**: escribes uno de 11 digitos, o pegas una lista y los consulta en
+  fila.
+- **Por PDF**: subes contratos y buenas pro juntos; se clasifican solos y cada
+  uno pasa por su flujo.
+- **Descargas**: Excel y PDF de cada tanda, con dia, fecha y hora en el nombre
+  (`consulta_ruc_lunes-24-08-2026_10-17-10.xlsx`), asi nunca se pisan entre si.
+
+## Probar sin pasar por GitHub
+
+El motor corre igual en tu PC:
+
+    pip install -r web/requirements.txt
+    python web/consultar.py --id prueba --rucs "20100055237"
+    python web/consultar.py --id prueba --pdfs carpeta_con_pdfs
+
+Deja el JSON y los exportes en `publicar/`. Para ver la web en local:
+`python -m http.server` dentro de `web/sitio` (igual necesita la clave, porque
+habla con la API de GitHub).
+
+## Lo que hay que saber
+
 - Cada consulta tarda **1-2 minutos**: GitHub tiene que encender una maquina,
-  instalar dependencias (quedan cacheadas) y recien ahi consultar. No es
-  instantaneo como el APK, que consulta directo.
+  instalar dependencias (quedan cacheadas) y recien ahi consultar.
 - Los resultados quedan en la rama `resultados` de un repo **publico**: son
-  datos de registros publicos, pero cualquiera puede leerlos si da con el id.
+  datos de registros publicos, pero cualquiera que de con el id puede leerlos.
 - La clave es un token real: si se filtra, alguien podria lanzar workflows en
-  este repo. Se revoca desde la misma pantalla donde se creo.
+  este repo. Se revoca desde donde se creo.
 - Las consultas salen desde la IP del runner de GitHub, no desde tu internet.
+  Si DIGESA bloquea esa IP, el resultado sale vacio.
+- DIGESA se recorre hasta 5 anios de emision y 3 paginas por anio: una empresa
+  con cientos de registros muestra los mas recientes hasta ese tope
+  (`MAX_PAGINAS` en `analizador/digesa.py`).
+- OCR esta desactivado: los PDF escaneados sin texto no se pueden leer.
 - En repos publicos los minutos de Actions no se cobran.
+
+## Historia
+
+La primera version era un APK de Android (Flask + Chaquopy dentro de un
+WebView). Sigue disponible en el tag `apk-final` por si alguna vez hace falta:
+
+    git checkout apk-final

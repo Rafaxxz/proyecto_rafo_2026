@@ -1,8 +1,4 @@
-# Dependencias de la version web (las corre GitHub Actions, no el celular).
-# El APK instala las suyas desde app/build.gradle.kts, con pdfplumber fijado
-# en 0.9.0 porque las versiones nuevas no tienen wheel para Android. Aqui no
-# hace falta esa restriccion.
-flask
+# Lo que instala GitHub Actions para correr web/consultar.py.
 requests
 beautifulsoup4
 openpyxl

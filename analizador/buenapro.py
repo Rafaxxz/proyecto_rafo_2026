@@ -1,9 +1,8 @@
-from flask import Blueprint, render_template, request, jsonify, send_file
-import pdfplumber
-import re
-import os
 import io
+import re
 from datetime import datetime
+
+import pdfplumber
 import requests
 import urllib3
 import openpyxl
@@ -13,22 +12,12 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from werkzeug.utils import secure_filename
 
-from . import digesa, utiles
+from . import digesa
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-bp = Blueprint('buenapro', __name__, url_prefix='/buenapro')
-import tempfile
-UPLOAD_FOLDER = os.path.join(os.environ.get('HOME', tempfile.gettempdir()), 'uploads')
-
-OSCE_BASE  = 'https://eap.osce.gob.pe/perfilprov-bus/1.0/ficha'
-
-ALLOWED_EXTENSIONS = {'pdf'}
-
-def allowed_file(f):
-    return '.' in f and f.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+OSCE_BASE = 'https://eap.osce.gob.pe/perfilprov-bus/1.0/ficha'
 
 def n(v):
     return ' '.join((v or '').split()).strip()
@@ -495,66 +484,6 @@ def generar_pdf_general(resultados):
     output.seek(0)
     return output
 
-
-# ─────────────────────────────
-#  RUTAS FLASK
-# ─────────────────────────────
-
-@bp.route('/')
-def index():
-    return render_template('buenapro.html')
-
-@bp.route('/procesar', methods=['POST'])
-def procesar():
-    if 'pdfs' not in request.files:
-        return jsonify({'error': 'No se enviaron archivos'}), 400
-    archivos = request.files.getlist('pdfs')
-    resultados = []
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    for archivo in archivos:
-        if archivo and allowed_file(archivo.filename):
-            nombre = secure_filename(archivo.filename)
-            ruta = os.path.join(UPLOAD_FOLDER, nombre)
-            archivo.save(ruta)
-            datos = extraer_datos_buena_pro(ruta, nombre)
-            resultados.append(datos)
-            os.remove(ruta)
-    return jsonify({'resultados': resultados})
-
-@bp.route('/consultar_ganador', methods=['POST'])
-def consultar_ganador():
-    body = request.json or {}
-    ruc  = (body.get('ruc') or '').strip()
-    if not re.fullmatch(r'\d{11}', ruc):
-        return jsonify({'error': 'RUC inválido'}), 400
-    osce   = consultar_osce(ruc)
-    digesa = consultar_digesa(ruc)
-    return jsonify({'osce': osce, 'digesa': digesa})
-
-@bp.route('/exportar', methods=['POST'])
-def exportar():
-    body = request.json or {}
-    datos = body.get('datos', [])
-    excel = generar_excel(datos)
-    return send_file(
-        excel,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=utiles.nombre_archivo('analisis_buena_pro', 'xlsx')
-    )
-
-
-@bp.route('/exportar_pdf', methods=['POST'])
-def exportar_pdf():
-    body = request.json or {}
-    datos = body.get('datos', [])
-    pdf = generar_pdf_general(datos)
-    return send_file(
-        pdf,
-        mimetype='application/pdf',
-        as_attachment=True,
-        download_name=utiles.nombre_archivo('analisis_buena_pro_general', 'pdf')
-    )
 
 
 def procesar_archivo(ruta, nombre):

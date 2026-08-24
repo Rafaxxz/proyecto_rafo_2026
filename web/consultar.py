@@ -5,7 +5,7 @@ cuenta (ninguno de los dos manda cabeceras CORS, y DIGESA ademas necesita
 cookies de sesion). Asi que la pagina dispara este script como workflow y
 despues lee el resultado que queda publicado en la rama de resultados.
 
-Usa exactamente los mismos modulos que el APK: aqui no se reimplementa nada.
+Usa el paquete analizador tal cual: aqui no se reimplementa nada.
 
 Uso:
     python web/consultar.py --id abc123 --rucs "20100055237, 20611555548"
@@ -19,17 +19,9 @@ import sys
 from datetime import datetime
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(RAIZ, 'app', 'src', 'main', 'python'))
+sys.path.insert(0, RAIZ)
 
 from analizador import buenapro, consulta, contratos, procesar_ruta, utiles   # noqa: E402
-
-
-def rucs_de(texto):
-    vistos = []
-    for ruc in re.findall(r'\d{11}', texto or ''):
-        if ruc not in vistos:
-            vistos.append(ruc)
-    return vistos
 
 
 def pdfs_de(carpeta):
@@ -58,7 +50,7 @@ def main():
     salida = {'contratos': [], 'buena_pro': [], 'desconocidos': []}
     consultas = []
 
-    rucs = rucs_de(args.rucs)
+    rucs = consulta.rucs(args.rucs)
     for i, ruc in enumerate(rucs, 1):
         print(f'[{i}/{len(rucs)}] consultando RUC {ruc}...', flush=True)
         consultas.append(consulta.consultar_ruc(ruc))
@@ -73,7 +65,7 @@ def main():
             print(f'   fallo: {e}', flush=True)
             salida['desconocidos'].append({'archivo': nombre, 'error': str(e)})
 
-    # Los exportes salen de los mismos generadores del APK.
+    # Los exportes salen de los generadores del paquete analizador.
     exportes = {}
 
     def exportar(clave, base, datos, generadores):
@@ -91,8 +83,9 @@ def main():
     if salida['buena_pro']:
         exportar('buena_pro', 'analisis_buena_pro', salida['buena_pro'], GEN_BUENA_PRO)
     if salida['contratos']:
-        exportar('contratos', 'contratos_ganadores', salida['contratos'],
-                 (('excel', contratos.generar_excel, 'xlsx'),))
+        exportar('contratos', 'contratos', salida['contratos'],
+                 (('excel', contratos.generar_excel, 'xlsx'),
+                  ('pdf', contratos.generar_pdf_lote, 'pdf')))
 
     resultado = {
         'id': ident,

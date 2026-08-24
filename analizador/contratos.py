@@ -1,19 +1,17 @@
-from flask import Blueprint, render_template, request, jsonify, send_file
-import pdfplumber
-import re
-import os
 import io
+import os
+import re
 import shutil
 import sys
 import time
+
 import openpyxl
+import pdfplumber
 import requests
 import urllib3
 from openpyxl.styles import Font, PatternFill, Alignment
-from werkzeug.utils import secure_filename
-from fpdf import FPDF
 
-from . import digesa as digesa_api, utiles
+from . import digesa as digesa_api
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -30,10 +28,6 @@ except ImportError:
 if load_dotenv:
     load_dotenv()
 
-bp = Blueprint('contratos', __name__, url_prefix='/contratos')
-import tempfile
-UPLOAD_FOLDER = os.path.join(os.environ.get('HOME', tempfile.gettempdir()), 'uploads')
-
 BASE = 'https://eap.osce.gob.pe/perfilprov-bus/1.0/ficha'
 
 HEADERS = {
@@ -43,11 +37,6 @@ HEADERS = {
     'Referer'        : 'https://apps.osce.gob.pe/perfilprov-ui/buscar',
     'Origin'         : 'https://apps.osce.gob.pe',
 }
-
-ALLOWED_EXTENSIONS = {'pdf'}
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def normalizar_texto(valor):
     return ' '.join((valor or '').split()).strip()
@@ -528,237 +517,170 @@ def procesar_archivo(ruta, nombre):
 
 
 # ─────────────────────────────────────────────
-#  Rutas Flask
+#  PDF consolidado de varios contratos
 # ─────────────────────────────────────────────
 
-@bp.route('/')
-def index():
-    return render_template('contratos.html')
-
-@bp.route('/procesar', methods=['POST'])
-def procesar():
-    if 'pdfs' not in request.files:
-        return jsonify({'error': 'No se enviaron archivos'}), 400
-    archivos = request.files.getlist('pdfs')
-    resultados = []
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    for archivo in archivos:
-        if archivo and allowed_file(archivo.filename):
-            nombre = secure_filename(archivo.filename)
-            ruta = os.path.join(UPLOAD_FOLDER, nombre)
-            archivo.save(ruta)
-            resultados.append(procesar_archivo(ruta, nombre))
-            os.remove(ruta)
-    return jsonify({'resultados': resultados})
-
-@bp.route('/exportar', methods=['POST'])
-def exportar():
-    datos = request.json.get('datos', [])
-    excel_file = generar_excel(datos)
-    return send_file(
-        excel_file,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=utiles.nombre_archivo('contratos_ganadores', 'xlsx')
-    )
-
-@bp.route('/exportar_pdf', methods=['POST'])
-def exportar_pdf():
-    """Exporta un registro individual a PDF"""
-    datos = request.json.get('datos', {})
-    if not datos:
-        return jsonify({'error': 'No hay datos para exportar'}), 400
-    
-    try:
-        pdf_file = generar_pdf_reporte(datos)
-        archivo_nombre = utiles.nombre_archivo(f"reporte_{datos.get('ruc', 'sin_ruc')}", 'pdf')
-        return send_file(
-            pdf_file,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=archivo_nombre
-        )
-    except Exception as e:
-        return jsonify({'error': f'Error generando PDF: {str(e)}'}), 500
-
-@bp.route('/exportar_pdf_lote', methods=['POST'])
-def exportar_pdf_lote():
-    """Exporta múltiples registros en un PDF consolidado con toda la información"""
+def generar_pdf_lote(datos_lista):
+    """PDF con todos los contratos de la tanda, uno por pagina."""
     from fpdf import FPDF, XPos, YPos
+
+    pdf = FPDF()
     
-    datos_lista = request.json.get('datos', [])
-    if not datos_lista:
-        return jsonify({'error': 'No hay datos para exportar'}), 400
-    
-    try:
-        pdf = FPDF()
+    for idx, datos in enumerate(datos_lista):
+        if idx > 0:
+            pdf.add_page()
+        else:
+            pdf.add_page()
         
-        for idx, datos in enumerate(datos_lista):
-            if idx > 0:
-                pdf.add_page()
-            else:
-                pdf.add_page()
-            
-            # ENCABEZADO
-            pdf.set_font("Helvetica", "B", 14)
-            pdf.cell(0, 12, f"REPORTE DE LICITACIÓN #{idx + 1}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_line_width(0.5)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.cell(0, 2, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            
-            # INFORMACIÓN PRINCIPAL
+        # ENCABEZADO
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 12, f"REPORTE DE LICITACIÓN #{idx + 1}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_line_width(0.5)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.cell(0, 2, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        # INFORMACIÓN PRINCIPAL
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "INFORMACIÓN PRINCIPAL DEL CONTRATO", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+        
+        pdf.set_font("Helvetica", "", 9)
+        campos_principal = [
+            ("Archivo PDF", datos.get('archivo', 'N/A')),
+            ("Número de Contrato", datos.get('numero_contrato', 'N/A')),
+            ("Zona", datos.get('zona', 'N/A')),
+        ]
+        
+        for label, valor in campos_principal:
+            pdf.set_font("Helvetica", "B", 8.5)
+            pdf.cell(40, 5, f"{label}:")
+            pdf.set_font("Helvetica", "", 8.5)
+            pdf.multi_cell(0, 5, str(valor)[:80], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        # CONTRATISTA GANADOR
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "CONTRATISTA GANADOR", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+        
+        pdf.set_font("Helvetica", "", 9)
+        campos_ganador = [
+            ("RUC", datos.get('ruc', 'N/A')),
+            ("Razón Social", datos.get('contratista', 'N/A')),
+            ("Representante Legal", datos.get('representante_legal', 'N/A')),
+            ("DNI Representante", datos.get('dni_representante', 'N/A')),
+        ]
+        
+        for label, valor in campos_ganador:
+            pdf.set_font("Helvetica", "B", 8.5)
+            pdf.cell(40, 5, f"{label}:")
+            pdf.set_font("Helvetica", "", 8.5)
+            pdf.multi_cell(0, 5, str(valor)[:80], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        # INFORMACIÓN OSCE DEL GANADOR
+        if datos.get('ruc'):
             pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(0, 8, "INFORMACIÓN PRINCIPAL DEL CONTRATO", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+            pdf.cell(0, 8, "INFORMACIÓN OSCE - EMPRESA GANADORA", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
             
             pdf.set_font("Helvetica", "", 9)
-            campos_principal = [
-                ("Archivo PDF", datos.get('archivo', 'N/A')),
-                ("Número de Contrato", datos.get('numero_contrato', 'N/A')),
-                ("Zona", datos.get('zona', 'N/A')),
+            campos_osce = [
+                ("Razón Social OSCE", datos.get('osce_razon_social', 'N/A')),
+                ("Estado RNP", datos.get('osce_estado_rnp', 'N/A')),
+                ("Apto para contratar", "Sí" if datos.get('osce_es_apto') else "No"),
+                ("Teléfono(s)", ', '.join(datos.get('osce_telefonos', ['N/A']))),
+                ("Celular(es)", ', '.join(datos.get('osce_celulares', ['N/A']))),
+                ("Email(s)", ', '.join(datos.get('osce_emails', ['N/A']))),
             ]
             
-            for label, valor in campos_principal:
+            for label, valor in campos_osce:
                 pdf.set_font("Helvetica", "B", 8.5)
                 pdf.cell(40, 5, f"{label}:")
                 pdf.set_font("Helvetica", "", 8.5)
-                pdf.multi_cell(0, 5, str(valor)[:80], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                valor_str = str(valor)[:100]
+                pdf.multi_cell(0, 5, valor_str, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             
             pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            
-            # CONTRATISTA GANADOR
+        
+        # MIEMBROS DEL CONSORCIO
+        miembros_texto = datos.get('miembros_consorcio', '').strip()
+        if miembros_texto:
             pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(0, 8, "CONTRATISTA GANADOR", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+            pdf.cell(0, 8, "MIEMBROS DEL CONSORCIO", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
             
+            miembros_list = miembros_texto.split('\n')
+            
+            # Mostrar lista de miembros
             pdf.set_font("Helvetica", "", 9)
-            campos_ganador = [
-                ("RUC", datos.get('ruc', 'N/A')),
-                ("Razón Social", datos.get('contratista', 'N/A')),
-                ("Representante Legal", datos.get('representante_legal', 'N/A')),
-                ("DNI Representante", datos.get('dni_representante', 'N/A')),
-            ]
+            for i, miembro_txt in enumerate(miembros_list, 1):
+                miembro_txt = miembro_txt.strip()
+                if miembro_txt:
+                    # Extraer RUC del miembro
+                    ruc_match = re.search(r'(\d{11})', miembro_txt)
+                    if ruc_match:
+                        ruc_miembro = ruc_match.group(1)
+                        pdf.set_font("Helvetica", "B", 8.5)
+                        pdf.cell(10, 6, f"{i}.")
+                        pdf.set_font("Helvetica", "", 8.5)
+                        pdf.multi_cell(0, 6, miembro_txt, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    else:
+                        pdf.cell(10, 6, f"{i}.")
+                        pdf.multi_cell(0, 6, miembro_txt, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             
-            for label, valor in campos_ganador:
-                pdf.set_font("Helvetica", "B", 8.5)
-                pdf.cell(40, 5, f"{label}:")
-                pdf.set_font("Helvetica", "", 8.5)
-                pdf.multi_cell(0, 5, str(valor)[:80], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            
-            pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            
-            # INFORMACIÓN OSCE DEL GANADOR
-            if datos.get('ruc'):
+            # INFORMACIÓN OSCE DE MIEMBROS DEL CONSORCIO
+            if 'osce_consorcio' in datos and datos['osce_consorcio']:
+                pdf.cell(0, 4, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 pdf.set_font("Helvetica", "B", 11)
-                pdf.cell(0, 8, "INFORMACIÓN OSCE - EMPRESA GANADORA", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+                pdf.cell(0, 8, "INFORMACIÓN OSCE - MIEMBROS DEL CONSORCIO", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
                 
-                pdf.set_font("Helvetica", "", 9)
-                campos_osce = [
-                    ("Razón Social OSCE", datos.get('osce_razon_social', 'N/A')),
-                    ("Estado RNP", datos.get('osce_estado_rnp', 'N/A')),
-                    ("Apto para contratar", "Sí" if datos.get('osce_es_apto') else "No"),
-                    ("Teléfono(s)", ', '.join(datos.get('osce_telefonos', ['N/A']))),
-                    ("Celular(es)", ', '.join(datos.get('osce_celulares', ['N/A']))),
-                    ("Email(s)", ', '.join(datos.get('osce_emails', ['N/A']))),
-                ]
-                
-                for label, valor in campos_osce:
-                    pdf.set_font("Helvetica", "B", 8.5)
-                    pdf.cell(40, 5, f"{label}:")
-                    pdf.set_font("Helvetica", "", 8.5)
-                    valor_str = str(valor)[:100]
-                    pdf.multi_cell(0, 5, valor_str, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            
-            # MIEMBROS DEL CONSORCIO
-            miembros_texto = datos.get('miembros_consorcio', '').strip()
-            if miembros_texto:
-                pdf.set_font("Helvetica", "B", 11)
-                pdf.cell(0, 8, "MIEMBROS DEL CONSORCIO", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
-                
-                miembros_list = miembros_texto.split('\n')
-                
-                # Mostrar lista de miembros
-                pdf.set_font("Helvetica", "", 9)
-                for i, miembro_txt in enumerate(miembros_list, 1):
-                    miembro_txt = miembro_txt.strip()
-                    if miembro_txt:
-                        # Extraer RUC del miembro
-                        ruc_match = re.search(r'(\d{11})', miembro_txt)
-                        if ruc_match:
-                            ruc_miembro = ruc_match.group(1)
-                            pdf.set_font("Helvetica", "B", 8.5)
-                            pdf.cell(10, 6, f"{i}.")
-                            pdf.set_font("Helvetica", "", 8.5)
-                            pdf.multi_cell(0, 6, miembro_txt, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        else:
-                            pdf.cell(10, 6, f"{i}.")
-                            pdf.multi_cell(0, 6, miembro_txt, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                # INFORMACIÓN OSCE DE MIEMBROS DEL CONSORCIO
-                if 'osce_consorcio' in datos and datos['osce_consorcio']:
-                    pdf.cell(0, 4, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                    pdf.set_font("Helvetica", "B", 11)
-                    pdf.cell(0, 8, "INFORMACIÓN OSCE - MIEMBROS DEL CONSORCIO", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+                for idx_miembro, osce_miembro in enumerate(datos['osce_consorcio'], 1):
+                    pdf.set_font("Helvetica", "B", 9)
+                    ruc_miembro = osce_miembro.get('ruc', 'N/A')
+                    razon_miembro = osce_miembro.get('razon_social', 'N/A')
+                    pdf.cell(0, 7, f"Miembro {idx_miembro}: RUC {ruc_miembro}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                     
-                    for idx_miembro, osce_miembro in enumerate(datos['osce_consorcio'], 1):
-                        pdf.set_font("Helvetica", "B", 9)
-                        ruc_miembro = osce_miembro.get('ruc', 'N/A')
-                        razon_miembro = osce_miembro.get('razon_social', 'N/A')
-                        pdf.cell(0, 7, f"Miembro {idx_miembro}: RUC {ruc_miembro}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        
-                        pdf.set_font("Helvetica", "", 8)
-                        info_miembro = [
-                            ("Razón Social", razon_miembro),
-                            ("Estado RNP", osce_miembro.get('estado_rnp', 'N/A')),
-                            ("Apto para contratar", "Sí" if osce_miembro.get('es_apto') else "No"),
-                            ("Teléfono", ', '.join(osce_miembro.get('telefonos_osce', ['N/A']))),
-                            ("Celular", ', '.join(osce_miembro.get('celulares_osce', ['N/A']))),
-                            ("Email", ', '.join(osce_miembro.get('emails', ['N/A']))),
-                        ]
-                        
-                        for lbl, val in info_miembro:
-                            pdf.set_font("Helvetica", "B", 7.5)
-                            pdf.cell(15, 4, "")
-                            pdf.cell(35, 4, f"{lbl}:")
-                            pdf.set_font("Helvetica", "", 7.5)
-                            val_str = str(val)[:90]
-                            pdf.multi_cell(0, 4, val_str, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        
-                        pdf.cell(0, 2, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                pdf.cell(0, 5, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    pdf.set_font("Helvetica", "", 8)
+                    info_miembro = [
+                        ("Razón Social", razon_miembro),
+                        ("Estado RNP", osce_miembro.get('estado_rnp', 'N/A')),
+                        ("Apto para contratar", "Sí" if osce_miembro.get('es_apto') else "No"),
+                        ("Teléfono", ', '.join(osce_miembro.get('telefonos_osce', ['N/A']))),
+                        ("Celular", ', '.join(osce_miembro.get('celulares_osce', ['N/A']))),
+                        ("Email", ', '.join(osce_miembro.get('emails', ['N/A']))),
+                    ]
+                    
+                    for lbl, val in info_miembro:
+                        pdf.set_font("Helvetica", "B", 7.5)
+                        pdf.cell(15, 4, "")
+                        pdf.cell(35, 4, f"{lbl}:")
+                        pdf.set_font("Helvetica", "", 7.5)
+                        val_str = str(val)[:90]
+                        pdf.multi_cell(0, 4, val_str, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    
+                    pdf.cell(0, 2, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             
-            # INFORMACIÓN DIGESA (si existe)
-            if datos.get('digesa_registros'):
-                pdf.set_font("Helvetica", "B", 11)
-                pdf.cell(0, 8, "REGISTROS SANITARIOS (DIGESA)", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
-                
-                pdf.set_font("Helvetica", "", 8)
-                for reg in datos.get('digesa_registros', [])[:3]:  # Mostrar primeros 3
-                    pdf.cell(0, 5, f"- Producto: {reg.get('producto', 'N/A')[:60]}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                    pdf.cell(5, 4, "")
-                    pdf.multi_cell(0, 4, f"Estado: {reg.get('estado', 'N/A')} | Emision: {reg.get('fecha_emision', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                if len(datos.get('digesa_registros', [])) > 3:
-                    pdf.cell(0, 4, f"... y {len(datos.get('digesa_registros', [])) - 3} más", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.cell(0, 5, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         
-        output = io.BytesIO()
-        pdf.output(output)
-        output.seek(0)
-        
-        return send_file(
-            output,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=utiles.nombre_archivo('contratos_lote', 'pdf')
-        )
-    except Exception as e:
-        print(f"Error generando PDF lote: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Error generando PDF: {str(e)}'}), 500
+        # INFORMACIÓN DIGESA (si existe)
+        if datos.get('digesa_registros'):
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(0, 8, "REGISTROS SANITARIOS (DIGESA)", new_x=XPos.LMARGIN, new_y=YPos.NEXT, border=0)
+            
+            pdf.set_font("Helvetica", "", 8)
+            for reg in datos.get('digesa_registros', [])[:3]:  # Mostrar primeros 3
+                pdf.cell(0, 5, f"- Producto: {reg.get('producto', 'N/A')[:60]}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf.cell(5, 4, "")
+                pdf.multi_cell(0, 4, f"Estado: {reg.get('estado', 'N/A')} | Emision: {reg.get('fecha_emision', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            if len(datos.get('digesa_registros', [])) > 3:
+                pdf.cell(0, 4, f"... y {len(datos.get('digesa_registros', [])) - 3} más", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            pdf.cell(0, 3, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    
+    output = io.BytesIO()
+    pdf.output(output)
+    output.seek(0)
+    return output
 
 
 # ─────────────────────────────────────────────
@@ -773,29 +695,3 @@ def consultar_digesa(ruc):
 consultar_digesa_por_ruc = consultar_digesa
 
 
-@bp.route('/consultar_digesa', methods=['POST'])
-def consultar_digesa_endpoint():
-    body = request.json or {}
-    ruc = (body.get('ruc') or '').strip()
-    if not ruc:
-        return jsonify({'error': 'Debes enviar un RUC.'}), 400
-    try:
-        return jsonify(consultar_digesa(ruc))
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except requests.HTTPError as e:
-        return jsonify({'error': f'Error HTTP DIGESA: {e}'}), 502
-    except Exception as e:
-        return jsonify({'error': f'No se pudo consultar DIGESA: {e}'}), 500
-
-@bp.route('/consultar_osce', methods=['POST'])
-def consultar_osce_endpoint():
-    body = request.json or {}
-    ruc = (body.get('ruc') or '').strip()
-    if not ruc:
-        return jsonify({'error': 'Debes enviar un RUC.'}), 400
-
-    try:
-        return jsonify(consultar_osce_por_ruc(ruc))
-    except Exception as e:
-        return jsonify({'error': str(e)}), 200
