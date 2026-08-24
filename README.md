@@ -24,6 +24,8 @@ el PDF a la memoria del navegador, borra los archivos del repositorio y desde
 ahi los descarga el usuario. Si alguien cierra la pestana a media consulta, el
 propio workflow purga lo que quede pasado un dia.
 
+    index.html           la web entera (una sola pagina, sin dependencias)
+    .nojekyll            que Pages sirva el HTML tal cual, sin procesarlo
     analizador/          el nucleo: scraping, extraccion de PDFs y exportes
       digesa.py          cliente DIGESA (registros sanitarios por RUC)
       buenapro.py        PDFs de buena pro + OSCE + Excel y PDF de resultados
@@ -31,21 +33,22 @@ propio workflow purga lo que quede pasado un dia.
       consulta.py        consulta por RUC suelto
       utiles.py          nombres de archivo con dia, fecha y hora
     web/
-      sitio/index.html   la web entera (una sola pagina, sin dependencias)
       consultar.py       lo que ejecuta el runner
       requirements.txt   lo que instala el runner
     .github/workflows/
-      web.yml            publica web/sitio en Pages
       consulta-web.yml   el motor que consulta y publica resultados
+
+`index.html` vive en la raiz a proposito: asi Pages lo sirve directamente desde
+la rama, sin workflow de publicacion. Antes se publicaba con un workflow y el
+Jekyll de GitHub competia con el, pisando la app con el README.
 
 ## Puesta en marcha (una sola vez)
 
 1. **Activar Pages**: Settings del repo > Pages > Build and deployment >
-   Source: **GitHub Actions**. El workflow no puede activarlo solo: crear el
-   sitio pide rango de admin y el token de Actions no lo tiene.
-   Despues, Actions > "Publicar web" > Run workflow. Queda en
-   `https://<usuario>.github.io/<repo>/` y de ahi en adelante se actualiza
-   solo con cada push que toque `web/sitio`.
+   Source: **Deploy from a branch**, rama `main`, carpeta `/ (root)`.
+   Queda en `https://<usuario>.github.io/<repo>/` y se actualiza solo con cada
+   push. (El workflow no puede activarlo por ti: crear el sitio pide rango de
+   admin y el token de Actions no lo tiene.)
 
 2. **Crear la clave de acceso**: Settings de tu cuenta (no del repo) >
    Developer settings > Personal access tokens > Fine-grained tokens >
