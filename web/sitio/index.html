@@ -175,6 +175,19 @@ async function api(ruta, opciones = {}){
   });
 }
 
+/* GitHub explica en el cuerpo que fue lo que fallo; sin eso un 403 pelado
+   no dice si falta un permiso, si vencio la clave o si el repo esta mal. */
+async function detalle(r){
+  try{
+    const j = await r.json();
+    return j.message ? ': ' + j.message : '';
+  }catch(e){ return '' }
+}
+
+const PISTA_PERMISOS = ' Revisa la clave en github.com/settings/personal-access-tokens: ' +
+  'necesita "Only select repositories" con este repo, y los permisos ' +
+  'Actions y Contents en "Read and write".';
+
 function mostrarApp(hay){
   ['cardRuc','cardPdf','pie'].forEach(id => $(id).style.display = hay ? 'block' : 'none');
   $('cardClave').style.display = hay ? 'none' : 'block';
@@ -194,7 +207,7 @@ $('guardarClave').onclick = async () => {
   }else{
     localStorage.removeItem(LLAVE);
     $('estadoClave').innerHTML = '<span class="err">Esa clave no sirve (' + r.status +
-      '). Revisa que sea el token del repositorio y que no haya vencido.</span>';
+      (await detalle(r)) + ').' + PISTA_PERMISOS + '</span>';
   }
 };
 $('cambiarClave').onclick = () => { localStorage.removeItem(LLAVE); mostrarApp(false); };
@@ -222,10 +235,11 @@ async function lanzar(id, rucs){
     body: JSON.stringify({ ref: 'main', inputs: { id, rucs: rucs || '' } }),
   });
   if(r.status === 204) return;
+  const porque = await detalle(r);
   if(r.status === 401 || r.status === 403){
-    throw new Error('La clave no tiene permiso para lanzar la consulta (' + r.status + ').');
+    throw new Error('La clave no puede lanzar la consulta (' + r.status + porque + ').' + PISTA_PERMISOS);
   }
-  throw new Error('GitHub no acepto la consulta (' + r.status + ').');
+  throw new Error('GitHub no acepto la consulta (' + r.status + porque + ').');
 }
 
 async function buscarCorrida(id){
@@ -355,7 +369,11 @@ async function subirPdf(id, archivo){
     method: 'PUT',
     body: JSON.stringify({ message: 'pdf ' + id, content: b64, branch: RAMA }),
   });
-  if(!r.ok) throw new Error('No pude subir ' + archivo.name + ' (' + r.status + ').');
+  if(!r.ok){
+    const porque = await detalle(r);
+    throw new Error('No pude subir ' + archivo.name + ' (' + r.status + porque + ').' +
+                    (r.status === 403 || r.status === 404 ? PISTA_PERMISOS : ''));
+  }
 }
 
 /* ───────── Pintar resultados ───────── */
