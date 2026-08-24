@@ -1,8 +1,12 @@
-# Analizador SEACE - APK (todo dentro del celular)
+# Analizador SEACE
 
-Flask + tus dos modulos (contratos y buena pro) corriendo en Android con Chaquopy,
-dentro de un WebView. Al abrir o compartir un PDF desde cualquier app, aparece
-"Analizador SEACE" en Abrir con / Compartir y el archivo se procesa solo.
+El mismo analizador en dos formatos, compartiendo el mismo codigo Python:
+
+- **APK**: Flask + los modulos (contratos y buena pro) corriendo en Android con
+  Chaquopy dentro de un WebView. Al abrir o compartir un PDF desde cualquier app,
+  aparece "Analizador SEACE" en Abrir con / Compartir y el archivo se procesa solo.
+- **Web**: una pagina en GitHub Pages que usa GitHub Actions como motor.
+  Ver [Version web](#version-web-github-pages--actions) mas abajo.
 
 ## Requisitos
 - Android Studio (Hedgehog o mas nuevo) con JDK 17
@@ -50,3 +54,50 @@ dentro de un WebView. Al abrir o compartir un PDF desde cualquier app, aparece
 3. Cuando termine (~10-15 min la primera vez), entra al run y descarga
    el artifact "AnalizadorSeace-apk": ahi esta app-debug.apk.
 4. Pasa el APK al celular e instalalo.
+
+## Version web (GitHub Pages + Actions)
+
+Sin instalar nada: se abre en el navegador del celular o de la PC.
+
+### Por que no es una web normal
+GitHub Pages solo sirve archivos estaticos, y el navegador no puede consultar
+OSCE ni DIGESA por su cuenta: ninguno de los dos manda la cabecera
+`Access-Control-Allow-Origin`, y DIGESA ademas necesita cookies de sesion y
+POSTs con VIEWSTATE. Por eso el Python corre en un runner de GitHub Actions:
+
+    celular -> Pages (web/sitio) -> dispara "Consulta web" -> el runner corre
+    web/consultar.py -> publica en la rama "resultados" -> la web lo pinta
+
+Es el mismo codigo del APK: `web/consultar.py` importa `analizador` tal cual,
+no reimplementa ni el scraping ni los exportes.
+
+### Puesta en marcha (una sola vez)
+1. Sube esta carpeta a GitHub. El workflow "Publicar web" habilita Pages solo
+   y deja la web en `https://<usuario>.github.io/<repo>/`.
+   Si falla por permisos: Settings > Pages > Source: GitHub Actions.
+2. Crea la clave de acceso: Settings de tu cuenta (no del repo) >
+   Developer settings > Personal access tokens > Fine-grained tokens >
+   Generate new token.
+   - Repository access: solo este repositorio.
+   - Permissions > Repository: **Actions: Read and write** y
+     **Contents: Read and write**. Nada mas.
+   - Expiration: lo que prefieras; cuando venza, se genera otro.
+3. Abre la web, pega la clave y listo: queda guardada en ese dispositivo.
+   Para sacarla, "Cambiar la clave de este dispositivo".
+
+### Como se usa
+- Consulta por RUC (uno o una lista pegada) igual que en la app.
+- Subida de PDFs: se suben a la rama "resultados" y el runner los clasifica y
+  procesa como el modo automatico del celular.
+- Excel y PDF se descargan desde la misma pagina, con dia/fecha/hora en el nombre.
+
+### Lo que hay que saber
+- Cada consulta tarda **1-2 minutos**: GitHub tiene que encender una maquina,
+  instalar dependencias (quedan cacheadas) y recien ahi consultar. No es
+  instantaneo como el APK, que consulta directo.
+- Los resultados quedan en la rama `resultados` de un repo **publico**: son
+  datos de registros publicos, pero cualquiera puede leerlos si da con el id.
+- La clave es un token real: si se filtra, alguien podria lanzar workflows en
+  este repo. Se revoca desde la misma pantalla donde se creo.
+- Las consultas salen desde la IP del runner de GitHub, no desde tu internet.
+- En repos publicos los minutos de Actions no se cobran.

@@ -1,0 +1,87 @@
+name: Consulta web
+
+# El backend de la web. La pagina de GitHub Pages es estatica y no puede
+# consultar OSCE ni DIGESA por su cuenta (no mandan CORS y DIGESA usa cookies
+# de sesion), asi que dispara este workflow y despues lee lo que queda
+# publicado en la rama "resultados".
+
+run-name: Consulta ${{ inputs.id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: 'Identificador de la consulta (lo genera la web)'
+        required: true
+      rucs:
+        description: 'RUCs separados por coma, espacio o salto de linea'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  consultar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar el codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: web/requirements.txt
+
+      - name: Instalar dependencias
+        run: pip install -r web/requirements.txt
+
+      - name: Traer la rama de resultados
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          url="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if ! git clone --depth 1 --branch resultados --single-branch "$url" publicado; then
+            echo "No existe la rama resultados todavia, la creo vacia."
+            git clone --depth 1 "$url" publicado
+            cd publicado
+            git checkout --orphan resultados
+            git rm -rf . > /dev/null
+            cd ..
+          fi
+
+      # Los datos entran por variables de entorno, nunca interpolados dentro
+      # del shell: asi un input con comillas o ; no puede ejecutar nada.
+      - name: Consultar OSCE y DIGESA
+        env:
+          ID: ${{ inputs.id }}
+          RUCS: ${{ inputs.rucs }}
+        run: |
+          entradas="publicado/entradas/${ID}"
+          [ -d "$entradas" ] || entradas=""
+          python web/consultar.py --id "$ID" --rucs "$RUCS" --pdfs "$entradas" --salida publicado
+
+      - name: Publicar el resultado
+        env:
+          ID: ${{ inputs.id }}
+          TOKEN: ${{ github.token }}
+        run: |
+          cd publicado
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git add -A
+          git commit -qm "resultado ${ID}" || { echo "nada que publicar"; exit 1; }
+          for intento in 1 2 3; do
+            if git push origin resultados; then
+              echo "publicado en el intento ${intento}"
+              exit 0
+            fi
+            echo "otro run publico primero, reintento..."
+            git pull --rebase origin resultados || true
+            sleep 3
+          done
+          echo "no pude publicar el resultado"
+          exit 1

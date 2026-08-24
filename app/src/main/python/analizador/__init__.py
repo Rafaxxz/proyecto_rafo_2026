@@ -45,7 +45,8 @@ def clasificar_pdf(ruta):
     return 'desconocido', texto
 
 
-def _procesar_ruta(ruta, nombre, salida):
+def procesar_ruta(ruta, nombre, salida):
+    """Clasifica un PDF y lo manda a su modulo. Lo usa la app y la web."""
     tipo, _ = clasificar_pdf(ruta)
     if tipo == 'contrato':
         salida['contratos'].append(contratos.procesar_archivo(ruta, nombre))
@@ -80,7 +81,7 @@ def create_app():
             ruta = os.path.join(UPLOAD_FOLDER, nombre)
             archivo.save(ruta)
             try:
-                _procesar_ruta(ruta, nombre, salida)
+                procesar_ruta(ruta, nombre, salida)
             finally:
                 if os.path.exists(ruta):
                     os.remove(ruta)
@@ -119,7 +120,7 @@ def create_app():
         salida = {'contratos': [], 'buena_pro': [], 'desconocidos': []}
         for ruta in rutas:
             try:
-                _procesar_ruta(ruta, os.path.basename(ruta), salida)
+                procesar_ruta(ruta, os.path.basename(ruta), salida)
             finally:
                 if os.path.exists(ruta):
                     os.remove(ruta)

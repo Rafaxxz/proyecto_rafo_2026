@@ -29,7 +29,7 @@ def consultar_ruc(ruc):
             'razon_social': osce.get('razon_social', '')}
 
 
-def _como_resultado(consultas):
+def como_resultado(consultas):
     """Envuelve las consultas con la forma que usan generar_excel/generar_pdf_general."""
     ganadores = [{
         'ruc': c.get('ruc', ''),
@@ -74,7 +74,7 @@ def buscar_lote():
 @bp.route('/exportar', methods=['POST'])
 def exportar():
     consultas = (request.json or {}).get('datos', [])
-    excel = buenapro.generar_excel(_como_resultado(consultas))
+    excel = buenapro.generar_excel(como_resultado(consultas))
     return send_file(
         excel,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -85,7 +85,7 @@ def exportar():
 @bp.route('/exportar_pdf', methods=['POST'])
 def exportar_pdf():
     consultas = (request.json or {}).get('datos', [])
-    pdf = buenapro.generar_pdf_general(_como_resultado(consultas))
+    pdf = buenapro.generar_pdf_general(como_resultado(consultas))
     return send_file(
         pdf,
         mimetype='application/pdf',

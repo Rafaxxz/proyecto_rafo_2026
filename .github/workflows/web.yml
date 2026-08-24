@@ -1,0 +1,44 @@
+name: Publicar web
+
+# Sube web/sitio a GitHub Pages. Es solo la interfaz: el trabajo pesado lo
+# hace el workflow "Consulta web".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/sitio/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.desplegar.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Empaquetar el sitio
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/sitio
+
+      - name: Desplegar
+        id: desplegar
+        uses: actions/deploy-pages@v4
